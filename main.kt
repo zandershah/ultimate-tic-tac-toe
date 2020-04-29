@@ -151,7 +151,7 @@ class Tree {
             state.apply(moves.random())
         }
 
-        return if (state.player == root_state.player) 1.0 else -1.0
+        return if (state.player == root_state.player) -1.0 else 1.0
     }
 
     fun backpropagate(leaf: Node?, result: Double) {
@@ -170,9 +170,13 @@ class Tree {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
-            state.apply(leaf.move)
 
-            val result = simulate(state)
+            var result = if (state.winning()) {
+                1.0
+            } else {
+                state.apply(leaf.move)
+                simulate(state)
+            }
 
             backpropagate(leaf, result)
             total_visits = total_visits + 1
