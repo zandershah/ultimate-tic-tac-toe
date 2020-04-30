@@ -144,9 +144,12 @@ class Tree {
     fun apply(move: Pair<Int, Int>) {
         if (move.first == -1) return
 
+        // TODO: This is making me timeout.
+        // root = root.children.find { it.move == move } ?: Node(move=move)
         root = Node(move=move)
+        total_visits = root.visits
+
         root_state.apply(move)
-        total_visits = 0.0
     }
 
     // TODO: Not efficient?
@@ -155,9 +158,9 @@ class Tree {
         val state = root_state.deep_copy()
 
         // TODO: Set exploration parameter.
-        val c = sqrt(2.0)
+        val c = sqrt(2.0 * ln(total_visits))
         while (!node.leaf()) {
-            node = node.children.maxBy { it.value / it.visits + c * sqrt(ln(total_visits) / it.visits) }!!
+            node = node.children.maxBy { it.value / it.visits + c / sqrt(it.visits) }!!
             state.apply(node.move)
         }
 
@@ -183,20 +186,22 @@ class Tree {
         return if (state.player == player) 1.0 else -1.0
     }
 
-    fun backpropagate(leaf: Node?, result: Double) {
-        if (leaf == null) { return }
+    fun backpropagate(leaf: Node, result: Double) {
+        var node: Node? = leaf
+        var flipping_result = result
 
-        val node = leaf
-        node.visits = node.visits + 1
-        node.value = node.value + result
-
-        backpropagate(node.parent, -result)
+        while (node != null) {
+            node.visits = node.visits + 1
+            node.value = node.value + flipping_result
+            flipping_result = -flipping_result
+            node = node.parent
+        }
     }
 
-    fun mcts() : Pair<Int, Int> {
+    fun mcts(duration: Int) : Pair<Int, Int> {
         val start = System.currentTimeMillis()
         timing.reset()
-        while (System.currentTimeMillis() - start <= 90) {
+        while (System.currentTimeMillis() - start <= duration - 1.5) {
             timing.lap()
             val (node, state) = selection()
             timing.selection = timing.selection + timing.lap()
@@ -228,20 +233,32 @@ class Tree {
 fun main() {
     val scanner = Scanner(System.`in`)
     var tree = Tree()
+    var first = true
 
+    // First turn.
     while (true) {
         val row = scanner.nextInt()
         val col = scanner.nextInt()
-        tree.apply(Pair(row, col))
+
+        val start = System.currentTimeMillis()
+        tree.apply(if (first && row == -1) Pair(4, 4) else Pair(row, col))
 
         repeat(scanner.nextInt()) {
             scanner.nextInt()
             scanner.nextInt()
         }
 
-        val move = tree.mcts()
-        tree.apply(move)
+        val duration = (if (first) 1000 else 100) - (System.currentTimeMillis() - start).toInt()
+        System.err.println("Duration: ${duration}ms")
+        val move = tree.mcts(duration)
 
-        println("${move.first} ${move.second}")
+        if (first && row == -1) {
+            println("4 4")
+        } else {
+            tree.apply(move)
+            println("${move.first} ${move.second}")
+        }
+
+        first = false
     }
 }
