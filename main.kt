@@ -76,8 +76,8 @@ data class State(
                 if (j != 0 && j % 3 == 0) {
                     row = row + "|"
                 }
-                val small_board = i % 3 * 3 + j % 3
-                val move = 1 shl small_board
+                val small_board = i / 3 * 3 + j / 3
+                val move = 1 shl (i % 3 * 3 + j % 3)
                 if ((board[0][small_board] and move) != 0) {
                     row = row + "X"
                 } else if ((board[1][small_board] and move) != 0) {
@@ -113,11 +113,34 @@ class Tree {
         }
     }
 
+    inner class Timing(
+        var current_time: Double = 0.0,
+        var selection: Double = 0.0,
+        var expansion: Double = 0.0,
+        var simulation: Double = 0.0,
+        var backpropagation: Double = 0.0
+    ) {
+
+        fun reset() {
+            current_time = System.nanoTime().toDouble()
+            selection = 0.0
+            expansion = 0.0
+            simulation = 0.0
+            backpropagation = 0.0
+        }
+
+        fun lap(): Double {
+            val delta = System.nanoTime() - current_time
+            current_time = System.nanoTime().toDouble()
+            return delta
+        }
+    }
+
     var root = Node()
     var root_state = State()
     var total_visits = 0.0
+    var timing = Timing()
 
-    // TODO: Recycle subtree if possible.
     fun apply(move: Pair<Int, Int>) {
         if (move.first == -1) return
 
@@ -134,7 +157,6 @@ class Tree {
         // TODO: Set exploration parameter.
         val c = sqrt(2.0)
         while (!node.leaf()) {
-            // TODO: UCB might be wrong.
             node = node.children.maxBy { it.value / it.visits + c * sqrt(ln(total_visits) / it.visits) }!!
             state.apply(node.move)
         }
@@ -144,14 +166,21 @@ class Tree {
 
     // TODO: Heuristic simulation.
     fun simulate(state: State) : Double {
+        val player = state.player
+
         while (!state.winning()) {
             val moves = state.moves()
-            if (moves.isEmpty()) return 0.0
+            // TODO: Count small boards for tie-breaker.
+            if (moves.isEmpty()) {
+                // Tie-breaker.
+                val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
+                return if (wins[player] > wins[1 - player]) 1.0 else -1.0
+            }
 
             state.apply(moves.random())
         }
 
-        return if (state.player == root_state.player) -1.0 else 1.0
+        return if (state.player == player) 1.0 else -1.0
     }
 
     fun backpropagate(leaf: Node?, result: Double) {
@@ -166,22 +195,30 @@ class Tree {
 
     fun mcts() : Pair<Int, Int> {
         val start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start <= 95) {
+        timing.reset()
+        while (System.currentTimeMillis() - start <= 90) {
+            timing.lap()
             val (node, state) = selection()
+            timing.selection = timing.selection + timing.lap()
 
             val leaf = node.expand(state)
+            timing.expansion = timing.expansion + timing.lap()
+            state.apply(leaf.move)
 
-            var result = if (state.winning()) {
-                1.0
-            } else {
-                state.apply(leaf.move)
-                simulate(state)
-            }
+            val result = simulate(state)
+            timing.simulation = timing.simulation + timing.lap()
 
             backpropagate(leaf, result)
+            timing.backpropagation = timing.backpropagation + timing.lap()
+
             total_visits = total_visits + 1
         }
-        System.err.println("${System.currentTimeMillis() - start}, ${total_visits}")
+
+        System.err.println("Time: ${System.currentTimeMillis() - start}ms, Sims: ${total_visits.toInt()}")
+        System.err.println("Selection: ${timing.selection * 1E-6}ms")
+        System.err.println("Expansion: ${timing.expansion * 1E-6}ms")
+        System.err.println("Simulation: ${timing.simulation * 1E-6}ms")
+        System.err.println("Backpropogation: ${timing.backpropagation / 1E-6}ms")
 
         assert(!root.children.isEmpty())
         return root.children.maxBy { it.visits }!!.move
