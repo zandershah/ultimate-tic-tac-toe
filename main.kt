@@ -17,18 +17,20 @@ val winning_memo = run {
     Array(1 shl 9, { i -> winning.any { (it and i) == it }})
 }
 
+// TODO: Keep set of remaining moves instead of iterating over all 81.
+
 data class State(
     val board: Array<Array<Int>> = Array(2, { Array(9, { 0 }) }),
-    var last_move: Pair<Int, Int> = Pair(0, 0),
+    var last_move: Pair<Byte, Byte> = Pair(0, 0),
     var player: Int = 0
 ) {
     fun deep_copy(
         board: Array<Array<Int>> = arrayOf(this.board[0].copyOf(), this.board[1].copyOf()),
-        last_move: Pair<Int, Int> = this.last_move,
+        last_move: Pair<Byte, Byte> = this.last_move,
         player: Int = this.player
     ) = State(board, last_move, player)
 
-    fun apply(move: Pair<Int, Int>) {
+    fun apply(move: Pair<Byte, Byte>) {
         val small_board = move.first / 3 * 3 + move.second / 3
         val bitwise_move = 1 shl (move.first % 3 * 3 + move.second % 3)
         board[player][small_board] = board[player][small_board] or bitwise_move
@@ -42,111 +44,85 @@ data class State(
         return winning_memo[large_board[0]] || winning_memo[large_board[1]]
     }
 
-    fun moves(): List<Pair<Int, Int>> {
-        val small_row = last_move.first % 3
-        val small_col = last_move.second % 3
-        var small_board = small_row * 3 + small_col
+    fun move(): Pair<Byte, Byte>? {
+        val small_row = last_move.first % 3 * 3
+        val small_col = last_move.second % 3 * 3
+        var small_board = small_row + small_col / 3
+
+        if (!winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]) {
+            val bitwise_board = board[0][small_board] or board[1][small_board]
+            (0 until 9).shuffled().forEach {
+                if (((bitwise_board shr it) and 1) == 0) {
+                    return Pair((it / 3 + small_row).toByte(), (it % 3 + small_col).toByte())
+                }
+            }
+        }
+
+        // Move anywhere valid.
+        (0 until 81).shuffled().forEach {
+            small_board = it / 27 * 3 + it % 9 / 3
+            val bitwise_move = it / 9 % 3 * 3 + it % 3
+            val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
+            val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
+            if (empty && unfinished) {
+                return Pair((it / 9).toByte(), (it % 9).toByte())
+            }
+        }
+
+        return null
+    }
+
+    fun moves(): List<Pair<Byte, Byte>> {
+        val small_row = last_move.first % 3 * 3
+        val small_col = last_move.second % 3 * 3
+        var small_board = small_row + small_col / 3
+        val bitwise_board = board[0][small_board] or board[1][small_board]
 
         var moves = (0 until 9).filter {
-            ((board[0][small_board] or board[1][small_board]) and (1 shl it)) == 0
-        }.map { Pair (it / 3 + 3 * small_row, it % 3 + 3 * small_col)}
+            ((bitwise_board shr it) and 1) == 0
+        }.map { Pair (it / 3 + small_row, it % 3 + small_col)}
 
         // Move anywhere valid.
         if (moves.isEmpty() || winning_memo[board[0][small_board]] || winning_memo[board[1][small_board]]) {
             moves = (0 until 81).filter {
-                small_board = it / 9 / 3 * 3 + it % 9 / 3
-                val bitwise_move = 1 shl (it / 9 % 3 * 3 + it % 3)
-                val empty = ((board[0][small_board] or board[1][small_board]) and bitwise_move) == 0
+                small_board = it / 27 * 3 + it % 9 / 3
+                val bitwise_move = it / 9 % 3 * 3 + it % 3
+                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
                 val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
                 empty && unfinished
             }.map { Pair (it / 9, it % 9) }
         }
 
-        // TODO: Move anywhere on the first turn.
-        return moves
-    }
-
-    fun debug() {
-        for (i in 0 until 9) {
-            if (i != 0 && i % 3 == 0) {
-                System.err.println("-----------")
-            }
-            var row = ""
-            for (j in 0 until 9) {
-                if (j != 0 && j % 3 == 0) {
-                    row = row + "|"
-                }
-                val small_board = i / 3 * 3 + j / 3
-                val move = 1 shl (i % 3 * 3 + j % 3)
-                if ((board[0][small_board] and move) != 0) {
-                    row = row + "X"
-                } else if ((board[1][small_board] and move) != 0) {
-                    row = row + "O"
-                } else {
-                    row = row + "."
-                }
-            }
-            System.err.println(row)
-        }
+        return moves.map { Pair(it.first.toByte(), it.second.toByte()) }
     }
 }
 
 class Tree {
-    // TODO: Equality might be broken?
     inner class Node(
         val parent: Node? = null,
-        val move: Pair<Int, Int> = Pair(0, 0)
+        val move: Pair<Byte, Byte> = Pair(0, 0)
     ) {
-        val children: MutableList<Node> = mutableListOf()
-        var visits = 1E-9
-        var value = 1E-6
+        var children: List<Node>? = null
+        var visits = 0
+        var value = 0
 
-        fun leaf() = children.isEmpty()
+        fun leaf() = children == null || children!!.isEmpty()
 
         fun expand(state: State) : Node {
             if (state.winning()) return this
 
-            val moves = state.moves()
-            moves.forEach{ children.add(Node(this, it)) }
+            children = state.moves().map { Node(this, it) }
 
-            return if (children.isEmpty()) this else children.last()
-        }
-    }
-
-    inner class Timing(
-        var current_time: Double = 0.0,
-        var selection: Double = 0.0,
-        var expansion: Double = 0.0,
-        var simulation: Double = 0.0,
-        var backpropagation: Double = 0.0
-    ) {
-
-        fun reset() {
-            current_time = System.nanoTime().toDouble()
-            selection = 0.0
-            expansion = 0.0
-            simulation = 0.0
-            backpropagation = 0.0
-        }
-
-        fun lap(): Double {
-            val delta = System.nanoTime() - current_time
-            current_time = System.nanoTime().toDouble()
-            return delta
+            return if (children!!.isEmpty()) this else children!!.last()
         }
     }
 
     var root = Node()
     var root_state = State()
-    var total_visits = 0.0
-    var timing = Timing()
+    var total_visits = 0
 
-    fun apply(move: Pair<Int, Int>) {
-        if (move.first == -1) return
-
-        // TODO: This is making me timeout.
-        // root = root.children.find { it.move == move } ?: Node(move=move)
-        root = Node(move=move)
+    fun apply(move: Pair<Byte, Byte>) {
+        root = root.children?.find { it.move == move } ?: Node(move=move)
         total_visits = root.visits
 
         root_state.apply(move)
@@ -158,9 +134,15 @@ class Tree {
         val state = root_state.deep_copy()
 
         // TODO: Set exploration parameter.
-        val c = sqrt(2.0 * ln(total_visits))
+        val c = sqrt(1.0 * ln(total_visits.toDouble()))
         while (!node.leaf()) {
-            node = node.children.maxBy { it.value / it.visits + c / sqrt(it.visits) }!!
+            node = node.children!!.maxBy {
+                if (it.visits == 0) {
+                    Double.MAX_VALUE
+                } else {
+                    it.value.toDouble() / it.visits + c / sqrt(it.visits.toDouble())
+                }
+            }!!
             state.apply(node.move)
         }
 
@@ -168,65 +150,51 @@ class Tree {
     }
 
     // TODO: Heuristic simulation.
-    fun simulate(state: State) : Double {
+    fun simulate(state: State) : Int {
         val player = state.player
 
         while (!state.winning()) {
-            val moves = state.moves()
-            // TODO: Count small boards for tie-breaker.
-            if (moves.isEmpty()) {
+            val move = state.move()
+            if (move == null) {
                 // Tie-breaker.
                 val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
-                return if (wins[player] > wins[1 - player]) 1.0 else -1.0
+                return if (wins[player] > wins[1 - player]) 1 else -1
             }
 
-            state.apply(moves.random())
+            state.apply(move)
         }
 
-        return if (state.player == player) 1.0 else -1.0
+        return if (state.player == player) 1 else -1
     }
 
-    fun backpropagate(leaf: Node, result: Double) {
+    fun backpropagate(leaf: Node, result: Int) {
         var node: Node? = leaf
-        var flipping_result = result
+        var result_copy = result
 
         while (node != null) {
             node.visits = node.visits + 1
-            node.value = node.value + flipping_result
-            flipping_result = -flipping_result
+            node.value = node.value + result_copy
+            result_copy = -result_copy
             node = node.parent
         }
     }
 
-    fun mcts(duration: Int) : Pair<Int, Int> {
+    fun mcts(duration: Int) : Pair<Byte, Byte> {
         val start = System.currentTimeMillis()
-        timing.reset()
-        while (System.currentTimeMillis() - start <= duration - 1.5) {
-            timing.lap()
+        while (System.currentTimeMillis() - start <= duration - 5) {
             val (node, state) = selection()
-            timing.selection = timing.selection + timing.lap()
 
             val leaf = node.expand(state)
-            timing.expansion = timing.expansion + timing.lap()
             state.apply(leaf.move)
 
-            val result = simulate(state)
-            timing.simulation = timing.simulation + timing.lap()
-
-            backpropagate(leaf, result)
-            timing.backpropagation = timing.backpropagation + timing.lap()
+            backpropagate(leaf, simulate(state))
 
             total_visits = total_visits + 1
         }
 
         System.err.println("Time: ${System.currentTimeMillis() - start}ms, Sims: ${total_visits.toInt()}")
-        System.err.println("Selection: ${timing.selection * 1E-6}ms")
-        System.err.println("Expansion: ${timing.expansion * 1E-6}ms")
-        System.err.println("Simulation: ${timing.simulation * 1E-6}ms")
-        System.err.println("Backpropogation: ${timing.backpropagation / 1E-6}ms")
 
-        assert(!root.children.isEmpty())
-        return root.children.maxBy { it.visits }!!.move
+        return root.children!!.maxBy { it.visits }!!.move
     }
 }
 
@@ -237,11 +205,11 @@ fun main() {
 
     // First turn.
     while (true) {
-        val row = scanner.nextInt()
-        val col = scanner.nextInt()
+        val row = scanner.nextByte()
+        val col = scanner.nextByte()
 
         val start = System.currentTimeMillis()
-        tree.apply(if (first && row == -1) Pair(4, 4) else Pair(row, col))
+        tree.apply(if (first && row == (-1).toByte()) Pair<Byte, Byte>(4, 4) else Pair(row, col))
 
         repeat(scanner.nextInt()) {
             scanner.nextInt()
@@ -252,7 +220,7 @@ fun main() {
         System.err.println("Duration: ${duration}ms")
         val move = tree.mcts(duration)
 
-        if (first && row == -1) {
+        if (first && row == (-1).toByte()) {
             println("4 4")
         } else {
             tree.apply(move)
