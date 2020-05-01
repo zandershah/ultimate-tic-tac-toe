@@ -17,9 +17,6 @@ val winning_memo = run {
     BooleanArray(1 shl 9, { i -> winning.any { (it and i) == it }})
 }
 
-val small_range = ByteArray(9, { it.toByte() })
-val range = ByteArray(81, { it.toByte() })
-
 // TODO: Keep set of remaining moves instead of iterating over all 81.
 
 data class State(
@@ -47,19 +44,19 @@ data class State(
         return winning_memo[large_board[0]] || winning_memo[large_board[1]]
     }
 
-    fun moves(): ByteArray {
+    fun moves(snapshot: Pair<Array<List<Byte>>, List<Byte>>): List<Byte> {
         val small_row = last_move / 9 % 3 * 3
         val small_col = last_move % 3 * 3
         var small_board = small_row + small_col / 3
         val bitwise_board = board[0][small_board] or board[1][small_board]
 
-        var moves = small_range.filter {
+        var moves = snapshot.first[small_board].filter {
             ((bitwise_board shr it.toInt()) and 1) == 0
         }.map { it -> ((it / 3 + small_row) * 9 + it % 3 + small_col).toByte() }
 
         // Move anywhere valid.
         if (moves.isEmpty() || winning_memo[board[0][small_board]] || winning_memo[board[1][small_board]]) {
-            moves = range.filter {
+            moves = snapshot.second.filter {
                 small_board = it / 27 * 3 + it % 9 / 3
                 val bitwise_move = it / 9 % 3 * 3 + it % 3
                 val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
@@ -68,7 +65,23 @@ data class State(
             }
         }
 
-        return moves.toByteArray()
+        return moves
+    }
+
+    fun snapshot(): Pair<Array<List<Byte>>, List<Byte>> {
+        val small_moves = Array(9, { small_board -> (0 until 9).filter {
+            (((board[0][small_board] or board[1][small_board]) shr it) and 1) == 0
+        }.map { it.toByte() } })
+
+        val large_moves = (0 until 81).filter{
+            val small_board = it / 27 * 3 + it % 9 / 3
+            val bitwise_move = it / 9 % 3 * 3 + it % 3
+            val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
+            val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
+            empty && unfinished
+        }.map { it.toByte() }
+
+        return Pair(small_moves, large_moves)
     }
 }
 
@@ -83,10 +96,10 @@ class Tree {
 
         fun leaf() = children == null || children!!.isEmpty()
 
-        fun expand(state: State) : Node {
+        fun expand(state: State, snapshot: Pair<Array<List<Byte>>, List<Byte>>) : Node {
             if (state.winning()) return this
 
-            children = state.moves().map { Node(this, it) }.toTypedArray()
+            children = state.moves(snapshot).map { Node(this, it) }.toTypedArray()
 
             return if (children!!.isEmpty()) this else children!!.last()
         }
@@ -126,46 +139,60 @@ class Tree {
         return Pair(node, state)
     }
 
-    // TODO: Heuristic simulation.
-    fun simulate(state: State) : Int {
+    // TODO: Heuristic: Never take a non-winning opponent free-move over a winning opponent free-move.
+    fun simulate(state: State, snapshot: Pair<Array<List<Byte>>, List<Byte>>) : Pair<Int, Boolean> {
         val player = state.player
+        var terminal_state = true
 
         while (!state.winning()) {
-            val moves = state.moves()
+            val moves = state.moves(snapshot)
             if (moves.isEmpty()) {
                 // Tie-breaker.
                 val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
-                return if (wins[player] > wins[1 - player]) 1 else if (wins[player] < wins[1 - player]) -1 else 0
+                return Pair(if (wins[player] > wins[1 - player]) 1 else if (wins[player] < wins[1 - player]) -1 else 0, terminal_state)
             }
 
             state.apply(moves.random())
+            terminal_state = false
         }
 
-        return if (state.player == player) 1 else -1
+        return Pair(if (state.player == player) 1 else -1, terminal_state)
     }
 
-    fun backpropagate(leaf: Node, result: Int) {
+    fun backpropagate(leaf: Node, result: Pair<Int, Boolean>) {
         var node: Node? = leaf
-        var result_copy = result
+        var (score, terminal_state) = result
 
+        // TODO: Minimax-like hack.
         while (node != null) {
             ++node.visits
-            node.value = node.value + result_copy
-            result_copy = -result_copy
+
+            if (node.leaf() && terminal_state) {
+                node.value = 1000000 * score
+            } else if (!node.leaf() && node.children!!.all { it.value < -500000 }) {
+                node.value = 1000000
+            } else if (!node.leaf() && node.children!!.any { it.value > 500000 }) {
+                node.value = -1000000
+            } else {
+                node.value = node.value + score
+            }
+
+            score = -score
             node = node.parent
         }
     }
 
     fun mcts(duration: Int) : Byte {
         val start = System.currentTimeMillis()
+        val snapshot = root_state.snapshot()
 
         while (System.currentTimeMillis() - start <= duration - 1) {
             val (node, state) = selection()
 
-            val leaf = node.expand(state)
+            val leaf = node.expand(state, snapshot)
             state.apply(leaf.move)
 
-            backpropagate(leaf, simulate(state))
+            backpropagate(leaf, simulate(state, snapshot))
 
             ++total_visits
         }
