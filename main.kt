@@ -135,7 +135,7 @@ class Tree {
             if (moves.isEmpty()) {
                 // Tie-breaker.
                 val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
-                return if (wins[player] > wins[1 - player]) 1 else -1
+                return if (wins[player] > wins[1 - player]) 1 else if (wins[player] < wins[1 - player]) -1 else 0
             }
 
             state.apply(moves.random())
@@ -159,7 +159,7 @@ class Tree {
     fun mcts(duration: Int) : Byte {
         val start = System.currentTimeMillis()
 
-        while (System.currentTimeMillis() - start <= duration - 2.5) {
+        while (System.currentTimeMillis() - start <= duration - 1) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
