@@ -19,7 +19,6 @@ val winning_memo = run {
 
 val small_range = ByteArray(9, { it.toByte() })
 val range = ByteArray(81, { it.toByte() })
-val random = Random()
 
 // TODO: Keep set of remaining moves instead of iterating over all 81.
 
@@ -46,41 +45,6 @@ data class State(
     fun winning(): Boolean {
         val large_board = board.map { it.reversed().fold(0) { acc, i -> (acc * 2) + (if (winning_memo[i]) 1 else 0) } }
         return winning_memo[large_board[0]] || winning_memo[large_board[1]]
-    }
-
-    fun move(): Byte? {
-        val small_row = last_move / 9 % 3 * 3
-        val small_col = last_move % 3 * 3
-        var small_board = small_row + small_col / 3
-        val bitwise_board = board[0][small_board] or board[1][small_board]
-
-        var moves = small_range.filter {
-            ((bitwise_board shr it.toInt()) and 1) == 0
-        }.map { it -> ((it / 3 + small_row) * 9 + it % 3 + small_col).toByte() }
-
-        if (!moves.isEmpty()) return moves.random()
-
-        // Move anywhere valid.
-        if (winning_memo[board[0][small_board]] || winning_memo[board[1][small_board]]) {
-            repeat(5) {
-                val it = random.nextInt(80).toByte()
-                small_board = it / 27 * 3 + it % 9 / 3
-                val bitwise_move = it / 9 % 3 * 3 + it % 3
-                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
-                if (empty && unfinished) return it
-            }
-
-            range.forEach {
-                small_board = it / 27 * 3 + it % 9 / 3
-                val bitwise_move = it / 9 % 3 * 3 + it % 3
-                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[board[1][small_board]] && !winning_memo[board[1][small_board]]
-                if (empty && unfinished) return it
-            }
-        }
-
-        return null
     }
 
     fun moves(): ByteArray {
@@ -167,14 +131,14 @@ class Tree {
         val player = state.player
 
         while (!state.winning()) {
-            val move = state.move()
-            if (move == null) {
+            val moves = state.moves()
+            if (moves.isEmpty()) {
                 // Tie-breaker.
                 val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
                 return if (wins[player] > wins[1 - player]) 1 else -1
             }
 
-            state.apply(move)
+            state.apply(moves.random())
         }
 
         return if (state.player == player) 1 else -1
@@ -195,7 +159,7 @@ class Tree {
     fun mcts(duration: Int) : Byte {
         val start = System.currentTimeMillis()
 
-        while (System.currentTimeMillis() - start <= duration - 1.5) {
+        while (System.currentTimeMillis() - start <= duration - 2.5) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
