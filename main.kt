@@ -220,7 +220,7 @@ class Tree {
             empty && unfinished
         }.map { it.toByte() }.shuffled()
 
-        while(System.currentTimeMillis() - start < duration - 3) {
+        while(System.currentTimeMillis() - start < duration - 1) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
@@ -247,6 +247,7 @@ fun main() {
     val scanner = Scanner(System.`in`)
     var tree = Tree()
     var turn = 0
+    var move = (-1).toByte()
 
     // First turn.
     while (true) {
@@ -255,9 +256,10 @@ fun main() {
 
         val start = System.currentTimeMillis()
 
-        if (turn % 2 == 0) System.gc()
-
+        if (turn != 0) tree.apply(move)
         tree.apply(if (turn == 0 && row == (-1).toByte()) (4 * 9 + 4).toByte() else (row * 9 + col).toByte())
+
+        if (turn % 2 == 0 && turn != 0) System.gc()
 
         repeat(scanner.nextInt()) {
             scanner.nextByte()
@@ -265,13 +267,12 @@ fun main() {
         }
 
         val duration = (if (turn == 0) 1000L else 100L) - (System.currentTimeMillis() - start)
-        val move = tree.mcts(duration)
+        move = tree.mcts(duration)
 
         if (turn == 0 && row == (-1).toByte()) {
             println("4 4")
         } else {
             println("${move / 9} ${move % 9}")
-            tree.apply(move)
         }
 
         ++turn
