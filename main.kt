@@ -2,6 +2,8 @@ import java.util.*
 import kotlin.io.*
 import kotlin.math.*
 
+val LOW_MASK = 0b111111111
+
 val winning_memo = run {
     val winning: MutableList<Int> = mutableListOf()
 
@@ -24,43 +26,47 @@ val move_memo = Array(1 shl 9, { i -> (0 until 9).filter {
 var leftover = (0 until 81).map { it.toByte() }
 
 data class State(
-    val board: Array<IntArray> = Array(2, { IntArray(9, { 0 }) }),
+    val board: IntArray = IntArray(9, { 0 }),
     var last_move: Byte = 0,
-    var player: Int = 0
+    var player: Byte = 1,
+    var large_board: Int = 0
 ) {
     var winning = false
 
     fun deep_copy(
-        board: Array<IntArray> = arrayOf(this.board[0].copyOf(), this.board[1].copyOf()),
+        board: IntArray = this.board.copyOf(),
         last_move: Byte = this.last_move,
-        player: Int = this.player
-    ) = State(board, last_move, player)
+        player: Byte = this.player,
+        large_board: Int = this.large_board
+    ) = State(board, last_move, player, large_board)
 
     fun apply(move: Byte) {
         val small_board = move / 27 * 3 + move % 9 / 3
-        val bitwise_move = 1 shl (move / 9 % 3 * 3 + move % 3)
-        board[player][small_board] = board[player][small_board] or bitwise_move
+        val bitwise_move = 1 shl (move / 9 % 3 * 3 + move % 3 + 9 * player)
+        board[small_board] = board[small_board] or bitwise_move
+
+        if (winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
+            large_board = large_board or (1 shl (small_board + 9 * player))
+            winning = winning_memo[large_board and LOW_MASK] || winning_memo[large_board shr 9]
+        }
 
         last_move = move
-        player = 1 - player
-
-        val large_board = board.map { it.reversed().fold(0) { acc, i -> (acc * 2) + (if (winning_memo[i]) 1 else 0) } }
-        winning = winning_memo[large_board[0]] || winning_memo[large_board[1]]
+        player = (1 - player).toByte()
     }
 
     fun move(): Byte {
         val small_row = last_move / 9 % 3 * 3
         val small_col = last_move % 3 * 3
         var small_board = small_row + small_col / 3
-        val bitwise_board = board[0][small_board] or board[1][small_board]
+        val bitwise_board = (board[small_board] and LOW_MASK) or (board[small_board] shr 9)
 
-        if (move_memo[bitwise_board].isEmpty() || winning_memo[board[0][small_board]] || winning_memo[board[1][small_board]]) {
-            repeat(3) {
+        if (move_memo[bitwise_board].isEmpty() || winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
+            repeat(5) {
                 val move = leftover.random()
                 small_board = move / 27 * 3 + move % 9 / 3
                 val bitwise_move = move / 9 % 3 * 3 + move % 3
-                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
+                val empty = ((((board[small_board] and LOW_MASK) or (board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+                val unfinished = !winning_memo[board[small_board] and LOW_MASK] && !winning_memo[board[small_board] shr 9]
 
                 if (empty && unfinished) return move
             }
@@ -68,8 +74,8 @@ data class State(
             leftover.shuffled().forEach {
                 small_board = it / 27 * 3 + it % 9 / 3
                 val bitwise_move = it / 9 % 3 * 3 + it % 3
-                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
+                val empty = ((((board[small_board] and LOW_MASK) or (board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+                val unfinished = !winning_memo[board[small_board] and LOW_MASK] && !winning_memo[board[small_board] shr 9]
                 if (empty && unfinished) return it
             }
 
@@ -84,14 +90,14 @@ data class State(
         val small_row = last_move / 9 % 3 * 3
         val small_col = last_move % 3 * 3
         var small_board = small_row + small_col / 3
-        val bitwise_board = board[0][small_board] or board[1][small_board]
+        val bitwise_board = (board[small_board] and LOW_MASK) or (board[small_board] shr 9)
 
-        return if (move_memo[bitwise_board].isEmpty() || winning_memo[board[0][small_board]] || winning_memo[board[1][small_board]]) {
+        return if (move_memo[bitwise_board].isEmpty() || winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
             leftover.filter {
                 small_board = it / 27 * 3 + it % 9 / 3
                 val bitwise_move = it / 9 % 3 * 3 + it % 3
-                val empty = (((board[0][small_board] or board[1][small_board]) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[board[0][small_board]] && !winning_memo[board[1][small_board]]
+                val empty = ((((board[small_board] and LOW_MASK) or (board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+                val unfinished = !winning_memo[board[small_board] and LOW_MASK] && !winning_memo[board[small_board] shr 9]
                 empty && unfinished
             }
         } else {
@@ -114,7 +120,8 @@ class Tree {
         fun expand(state: State) : Node {
             if (state.winning) return this
 
-            children = state.moves().map { Node(this, it) }.toTypedArray()
+            val moves = state.moves()
+            children = Array(moves.size, { Node(this, moves[it]) })
 
             return if (children!!.isEmpty()) this else children!!.last()
         }
@@ -157,21 +164,25 @@ class Tree {
     // TODO: Heuristic: Never take a non-winning opponent free-move over a winning opponent free-move.
     fun simulate(state: State) : Pair<Int, Boolean> {
         val player = state.player
-        var terminal_state = true
-        
+        var terminal = true
+
         while (!state.winning) {
             val move = state.move()
             if (move == (-1).toByte()) {
                 // Tie-breaker.
-                val wins = state.board.map { it.sumBy { i -> if (winning_memo[i]) 1 else 0 } }
-                return Pair((wins[player] - wins[1 - player]).sign, terminal_state)
+                val wins = arrayOf(
+                    state.board.sumBy { if (winning_memo[it and LOW_MASK]) 1 else 0 },
+                    state.board.sumBy { if (winning_memo[it shr 9]) 1 else 0 }
+                )
+                return Pair((wins[1 - player.toInt()] - wins[player.toInt()]).sign, terminal)
             }
 
             state.apply(move)
-            terminal_state = false
+            terminal = false
         }
 
-        return Pair(if (state.player == player) 1 else -1, terminal_state)
+        val winner = if (winning_memo[state.large_board and LOW_MASK]) 0.toByte() else 1.toByte()
+        return Pair(if (player == winner) -1 else 1, terminal)
     }
 
     fun backpropagate(leaf: Node, result: Pair<Int, Boolean>) {
@@ -196,28 +207,31 @@ class Tree {
         }
     }
 
-    fun mcts(duration: Int) : Byte {
+    fun mcts(duration: Long): Byte {
         val start = System.currentTimeMillis()
+
         leftover = (0 until 81).filter {
             val small_board = it / 27 * 3 + it % 9 / 3
             val bitwise_move = it / 9 % 3 * 3 + it % 3
-            val empty = (((root_state.board[0][small_board] or root_state.board[1][small_board]) shr bitwise_move) and 1) == 0
-            val unfinished = !winning_memo[root_state.board[0][small_board]] && !winning_memo[root_state.board[1][small_board]]
+            val empty = ((((root_state.board[small_board] and LOW_MASK) or (root_state.board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+            val unfinished = !winning_memo[root_state.board[small_board] and LOW_MASK] && !winning_memo[root_state.board[small_board] shr 9]
             empty && unfinished
         }.map { it.toByte() }
 
-        while (System.currentTimeMillis() - start <= duration - 1) {
+        while(System.currentTimeMillis() - start < duration - 3) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
-            if (node != leaf) state.apply(leaf.move)
+            if (leaf != node) state.apply(leaf.move)
 
-            backpropagate(leaf, simulate(state))
+            val result = simulate(state)
+            backpropagate(leaf, result)
 
             ++total_visits
         }
 
-        System.err.println(total_visits)
+        System.err.println("Visits: ${total_visits}")
+        System.err.println(root.children!!.maxBy{it.visits}!!.value)
         return root.children!!.maxBy { it.visits }!!.move
     }
 }
@@ -225,7 +239,7 @@ class Tree {
 fun main() {
     val scanner = Scanner(System.`in`)
     var tree = Tree()
-    var first = true
+    var turn = 0
 
     // First turn.
     while (true) {
@@ -233,23 +247,28 @@ fun main() {
         val col = scanner.nextByte()
 
         val start = System.currentTimeMillis()
-        tree.apply(if (first && row == (-1).toByte()) (4 * 9 + 4).toByte() else (row * 9 + col).toByte())
+
+        if (turn != 0 && turn % 2 == 0) System.gc()
+
+        tree.apply(if (turn == 0 && row == (-1).toByte()) (4 * 9 + 4).toByte() else (row * 9 + col).toByte())
 
         repeat(scanner.nextInt()) {
             scanner.nextInt()
             scanner.nextInt()
         }
 
-        val duration = (if (first) 1000 else 100) - (System.currentTimeMillis() - start).toInt()
+        val duration = (if (turn == 0) 1000L else 100L) - (System.currentTimeMillis() - start)
+        System.err.println("Duration: ${duration}")
+
         val move = tree.mcts(duration)
 
-        if (first && row == (-1).toByte()) {
+        if (turn == 0 && row == (-1).toByte()) {
             println("4 4")
         } else {
-            tree.apply(move)
             println("${move / 9} ${move % 9}")
+            tree.apply(move)
         }
 
-        first = false
+        ++turn
     }
 }
