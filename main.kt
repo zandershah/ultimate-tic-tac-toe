@@ -23,13 +23,10 @@ val move_memo = Array(1 shl 9, { i -> (0 until 9).filter {
     ((i shr it) and 1) == 0 }.map { it.toByte() }.toByteArray()
 })
 
-val small_board_memo = (0 until 81).map { it / 27 * 3 + it % 9 / 3 }
-val bitwise_move_memo = (0 until 81).map { it / 9 % 3 * 3 + it % 3 }
-
 var leftover = (0 until 81).map { it.toByte() }
 
 data class State(
-    val board: LongArray = LongArray(3, { 0L }),
+    val board: IntArray = IntArray(9, { 0 }),
     var last_move: Byte = 0,
     var player: Byte = 1,
     var large_board: Int = 0
@@ -37,18 +34,18 @@ data class State(
     var winning = false
 
     fun deep_copy(
-        board: LongArray = this.board.copyOf(),
+        board: IntArray = this.board.copyOf(),
         last_move: Byte = this.last_move,
         player: Byte = this.player,
         large_board: Int = this.large_board
     ) = State(board, last_move, player, large_board)
 
     fun apply(move: Byte) {
-        val small_board = small_board_memo[move.toInt()]
-        val bitwise_move = 1L shl (bitwise_move_memo[move.toInt()] + 9 * player + small_board % 3 * 18)
-        board[small_board / 3] = board[small_board / 3] or bitwise_move
+        val small_board = move / 27 * 3 + move % 9 / 3
+        val bitwise_move = 1 shl (move / 9 % 3 * 3 + move % 3 + 9 * player)
+        board[small_board] = board[small_board] or bitwise_move
 
-        if (winning_memo[(board[small_board / 3] shr (small_board % 3 * 18)).toInt() and LOW_MASK] || winning_memo[(board[small_board / 3] shr (9 + small_board % 3 * 18)).toInt() and LOW_MASK]) {
+        if (winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
             large_board = large_board or (1 shl (small_board + 9 * player))
             winning = winning_memo[large_board and LOW_MASK] || winning_memo[large_board shr 9]
         }
@@ -61,18 +58,14 @@ data class State(
         val small_row = last_move / 9 % 3 * 3
         val small_col = last_move % 3 * 3
         var small_board = small_row + small_col / 3
-        var board_index = small_board / 3
-        var board_offset = small_board % 3 * 18
-        val bitwise_board = ((board[board_index] shr board_offset).toInt() and LOW_MASK) or ((board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK)
+        val bitwise_board = (board[small_board] and LOW_MASK) or (board[small_board] shr 9)
 
-        if (move_memo[bitwise_board].isEmpty() || winning_memo[(board[board_index] shr board_offset).toInt() and LOW_MASK] || winning_memo[(board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK]) {
+        if (move_memo[bitwise_board].isEmpty() || winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
             leftover.forEach {
-                small_board = small_board_memo[it.toInt()]
-                board_index = small_board / 3
-                board_offset = small_board % 3 * 18
-                val bitwise_move = bitwise_move_memo[it.toInt()]
-                val empty = (((((board[board_index] shr board_offset).toInt() and LOW_MASK) or ((board[board_index] shr (9 + board_offset)).toInt())) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[(board[board_index] shr board_offset).toInt() and LOW_MASK] && !winning_memo[(board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK]
+                small_board = it / 27 * 3 + it % 9 / 3
+                val bitwise_move = it / 9 % 3 * 3 + it % 3
+                val empty = ((((board[small_board] and LOW_MASK) or (board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+                val unfinished = !winning_memo[board[small_board] and LOW_MASK] && !winning_memo[board[small_board] shr 9]
                 if (empty && unfinished) return it
             }
 
@@ -87,18 +80,14 @@ data class State(
         val small_row = last_move / 9 % 3 * 3
         val small_col = last_move % 3 * 3
         var small_board = small_row + small_col / 3
-        var board_index = small_board / 3
-        var board_offset = small_board % 3 * 18
-        val bitwise_board = ((board[board_index] shr board_offset).toInt() and LOW_MASK) or ((board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK)
+        val bitwise_board = (board[small_board] and LOW_MASK) or (board[small_board] shr 9)
 
-        return if (move_memo[bitwise_board].isEmpty() || winning_memo[(board[board_index] shr board_offset).toInt() and LOW_MASK] || winning_memo[(board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK]) {
+        return if (move_memo[bitwise_board].isEmpty() || winning_memo[board[small_board] and LOW_MASK] || winning_memo[board[small_board] shr 9]) {
             leftover.filter {
-                small_board = small_board_memo[it.toInt()]
-                board_index = small_board / 3
-                board_offset = small_board % 3 * 18
-                val bitwise_move = bitwise_move_memo[it.toInt()]
-                val empty = (((((board[board_index] shr board_offset).toInt() and LOW_MASK) or ((board[board_index] shr (9 + board_offset)).toInt())) shr bitwise_move) and 1) == 0
-                val unfinished = !winning_memo[(board[board_index] shr board_offset).toInt() and LOW_MASK] && !winning_memo[(board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK]
+                small_board = it / 27 * 3 + it % 9 / 3
+                val bitwise_move = it / 9 % 3 * 3 + it % 3
+                val empty = ((((board[small_board] and LOW_MASK) or (board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+                val unfinished = !winning_memo[board[small_board] and LOW_MASK] && !winning_memo[board[small_board] shr 9]
                 empty && unfinished
             }
         } else {
@@ -119,7 +108,7 @@ class Tree {
         fun leaf() = children == null || children!!.isEmpty()
 
         fun expand(state: State) : Node {
-            if (state.winning || value == Int.MAX_VALUE || value == Int.MIN_VALUE) return this
+            if (state.winning) return this
 
             val moves = state.moves()
             children = Array(moves.size, { Node(this, moves[it]) })
@@ -171,8 +160,8 @@ class Tree {
             if (move == (-1).toByte()) {
                 // Tie-breaker.
                 val wins = arrayOf(
-                    state.board.sumBy { i -> (0 until 3).sumBy { if (winning_memo[(i shr (18 * it)).toInt() and LOW_MASK]) 1 else 0 } },
-                    state.board.sumBy { i -> (0 until 3).sumBy { if (winning_memo[(i shr (9 + 18 * it)).toInt() and LOW_MASK]) 1 else 0 } }
+                    state.board.sumBy { if (winning_memo[it and LOW_MASK]) 1 else 0 },
+                    state.board.sumBy { if (winning_memo[it shr 9]) 1 else 0 }
                 )
                 return Pair((wins[1 - player.toInt()] - wins[player.toInt()]).sign, terminal)
             }
@@ -194,10 +183,10 @@ class Tree {
 
             if (node.leaf() && terminal_state) {
                 node.value = Int.MAX_VALUE * score
-            } else if (!node.leaf() && node.children!!.all { it.value == -Int.MIN_VALUE }) {
+            } else if (!node.leaf() && node.children!!.all { it.value < Int.MIN_VALUE / 2 }) {
                 node.value = Int.MAX_VALUE
-            } else if (!node.leaf() && node.children!!.any { it.value == Int.MAX_VALUE }) {
-                node.value = -Int.MAX_VALUE
+            } else if (!node.leaf() && node.children!!.any { it.value > Int.MAX_VALUE / 2 }) {
+                node.value = Int.MIN_VALUE
             } else {
                 node.value = node.value + score
             }
@@ -211,35 +200,28 @@ class Tree {
         val start = System.currentTimeMillis()
 
         leftover = leftover.filter {
-            val small_board = small_board_memo[it.toInt()]
-            val board_index = small_board / 3
-            val board_offset = small_board % 3 * 18
-            val bitwise_move = bitwise_move_memo[it.toInt()]
-            val empty = (((((root_state.board[board_index] shr board_offset).toInt() and LOW_MASK) or ((root_state.board[board_index] shr (9 + board_offset)).toInt())) shr bitwise_move) and 1) == 0
-            val unfinished = !winning_memo[(root_state.board[board_index] shr board_offset).toInt() and LOW_MASK] && !winning_memo[(root_state.board[board_index] shr (9 + board_offset)).toInt() and LOW_MASK]
+            val small_board = it / 27 * 3 + it % 9 / 3
+            val bitwise_move = it / 9 % 3 * 3 + it % 3
+            val empty = ((((root_state.board[small_board] and LOW_MASK) or (root_state.board[small_board] shr 9)) shr bitwise_move) and 1) == 0
+            val unfinished = !winning_memo[root_state.board[small_board] and LOW_MASK] && !winning_memo[root_state.board[small_board] shr 9]
             empty && unfinished
         }.map { it.toByte() }.shuffled()
 
-        while(System.currentTimeMillis() - start < duration - 1) {
+        while(System.currentTimeMillis() - start < duration - 3) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
             if (leaf != node) state.apply(leaf.move)
 
-            val result = if (leaf.value == Int.MAX_VALUE || leaf.value == -Int.MAX_VALUE) {
-                Pair(leaf.value.sign, true)
-            } else {
-                simulate(state)
-            }
+            val result = simulate(state)
             backpropagate(leaf, result)
 
             ++total_visits
         }
 
-        System.err.println("Visits: ${total_visits}")
-        val node = root.children!!.maxBy { it.visits }!!
-        System.err.println(node.value)
-        return node.move
+        // System.err.println("Visits: ${total_visits}")
+        // System.err.println(root.children!!.maxBy{it.visits}!!.value)
+        return root.children!!.maxBy { it.visits }!!.move
     }
 }
 
@@ -247,7 +229,6 @@ fun main() {
     val scanner = Scanner(System.`in`)
     var tree = Tree()
     var turn = 0
-    var move = (-1).toByte()
 
     // First turn.
     while (true) {
@@ -256,23 +237,25 @@ fun main() {
 
         val start = System.currentTimeMillis()
 
-        if (turn != 0) tree.apply(move)
         tree.apply(if (turn == 0 && row == (-1).toByte()) (4 * 9 + 4).toByte() else (row * 9 + col).toByte())
 
-        if (turn % 2 == 0 && turn != 0) System.gc()
+        if (turn != 0) System.gc()
 
         repeat(scanner.nextInt()) {
-            scanner.nextByte()
-            scanner.nextByte()
+            scanner.nextInt()
+            scanner.nextInt()
         }
 
         val duration = (if (turn == 0) 1000L else 100L) - (System.currentTimeMillis() - start)
-        move = tree.mcts(duration)
+        System.err.println("Duration: ${duration}")
+
+        val move = tree.mcts(duration)
 
         if (turn == 0 && row == (-1).toByte()) {
             println("4 4")
         } else {
             println("${move / 9} ${move % 9}")
+            tree.apply(move)
         }
 
         ++turn
