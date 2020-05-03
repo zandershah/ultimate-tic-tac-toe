@@ -27,7 +27,6 @@ var leftover = (0 until 81).map { it.toByte() }
 
 class Tree {
     class Node(
-        var parent: Node? = null,
         val move: Byte = 0
     ) {
         var children: Array<Node>? = null
@@ -40,7 +39,7 @@ class Tree {
             if (state.winning) return this
 
             val moves = state.moves()
-            children = Array(moves.size, { Node(this, moves[it]) })
+            children = Array(moves.size, { Node(moves[it]) })
 
             return if (children!!.isEmpty()) this else children!!.last()
         }
@@ -129,11 +128,10 @@ class Tree {
     var root = Node()
     var root_state = State()
     var total_visits = 0
+    var stack = ArrayDeque<Node>()
 
     fun apply(move: Byte) {
         root = root.children?.find { it.move == move } ?: Node(move=move)
-        root.parent = null
-
         total_visits = root.visits
 
         root_state.apply(move)
@@ -141,6 +139,7 @@ class Tree {
 
     fun selection(): Pair<Node, State> {
         var node = root
+        stack.push(node)
         val state = root_state.deep_copy()
 
         // TODO: Set exploration parameter.
@@ -153,6 +152,7 @@ class Tree {
                     it.value.toDouble() / it.visits + c / sqrt(it.visits.toDouble())
                 }
             }!!
+            stack.push(node)
             state.apply(node.move)
         }
 
@@ -183,11 +183,11 @@ class Tree {
         return Pair(if (player == winner) -1 else 1, terminal)
     }
 
-    fun backpropagate(leaf: Node, result: Pair<Int, Boolean>) {
-        var node: Node? = leaf
+    fun backpropagate(result: Pair<Int, Boolean>) {
         var (score, terminal_state) = result
 
-        while (node != null) {
+        while (!stack.isEmpty()) {
+            val node = stack.pop()
             ++node.visits
 
             if (node.leaf() && terminal_state) {
@@ -201,7 +201,6 @@ class Tree {
             }
 
             score = -score
-            node = node.parent
         }
     }
 
@@ -214,16 +213,19 @@ class Tree {
             val empty = ((((root_state.board[small_board] and LOW_MASK) or (root_state.board[small_board] shr 9)) shr bitwise_move) and 1) == 0
             val unfinished = !winning_memo[root_state.board[small_board] and LOW_MASK] && !winning_memo[root_state.board[small_board] shr 9]
             empty && unfinished
-        }.map { it.toByte() }
+        }.map { it.toByte() }.shuffled()
 
         while(System.currentTimeMillis() - start < duration - 3) {
             val (node, state) = selection()
 
             val leaf = node.expand(state)
-            if (leaf != node) state.apply(leaf.move)
+            if (leaf != node) {
+                stack.push(leaf)
+                state.apply(leaf.move)
+            }
 
             val result = simulate(state)
-            backpropagate(leaf, result)
+            backpropagate(result)
 
             ++total_visits
         }
@@ -251,7 +253,7 @@ fun main() {
         if (turn != 0 && move != (-1).toByte()) tree.apply(move)
         tree.apply(if (turn == 0 && row == (-1).toByte()) (4 * 9 + 4).toByte() else (row * 9 + col).toByte())
 
-        if (turn % 3 == 2) System.gc()
+        if (turn != 0 && turn % 6 == 0) System.gc()
 
         repeat(scanner.nextInt()) {
             scanner.nextInt()
